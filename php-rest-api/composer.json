@@ -1,0 +1,22 @@
+{
+    "name": "svetlana/php-rest-api",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "Svetlana\\PhpRestApi\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Svetlana-Zarubeeva",
+            "email": "zsa859@yandex.ru"
+        }
+    ],
+    "require": {
+        "slim/slim": "^4.0",
+        "slim/psr7": "^1.0",
+        "monolog/monolog": "^2.0",
+        "slim/http-cache": "^1.0",
+        "firebase/php-jwt": "^6.0"
+    }
+}
