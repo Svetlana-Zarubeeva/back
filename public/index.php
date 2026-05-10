@@ -1,32 +1,32 @@
 <?php
 declare(strict_types=1);
 
-use Slim\Factory\AppFactory;
-use Svetlana\PhpRestApi\Controllers\LegalEntitiesController;
-
 require __DIR__ . '/../vendor/autoload.php';
+
+use Dotenv\Dotenv;
+use Slim\Factory\AppFactory;
+use App\Controllers\CompanyController;
+use App\Controllers\CityController;
+use App\Controllers\StatusController;
+
+$dotenv = Dotenv::createImmutable(__DIR__ . '/..');
+$dotenv->load();
 
 $app = AppFactory::create();
 
-// Middleware для JSON
 $app->addBodyParsingMiddleware();
 
-// Health check
-$app->get('/health', function ($req, $res) {
-    try {
-        $db = \Svetlana\PhpRestApi\Models\Database::getConnection();
-        $db->query('SELECT 1');
-        $status = 'OK';
-    } catch (Exception $e) {
-        $status = 'ERROR: ' . $e->getMessage();
-    }
-    return $res->withJson(['status' => $status, 'timestamp' => time()]);
+// Эндпоинты компаний
+$app->get('/companies', [CompanyController::class, 'getAll']);
+$app->get('/companies/{inn}', [CompanyController::class, 'getByInn']);
+
+// Эндпоинты для фильтрации
+$app->get('/cities', [CityController::class, 'getCities']);
+$app->get('/statuses', [StatusController::class, 'getStatuses']);
+
+// Обработка ошибок 404
+$app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($request, $response) {
+    return $response->withStatus(404)->withJson(['success' => false, 'error' => 'Route not found']);
 });
-
-// GET /legal-entities — получить все юрлица
-$app->get('/legal-entities', [LegalEntitiesController::class, 'getAll']);
-
-// GET /legal-entities/{inn} — получить по ИНН
-$app->get('/legal-entities/{inn}', [LegalEntitiesController::class, 'getByInn']);
 
 $app->run();

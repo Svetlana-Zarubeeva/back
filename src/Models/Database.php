@@ -1,6 +1,6 @@
 <?php
 
-namespace Svetlana\PhpRestApi\Models;
+namespace App\Models;
 
 use PDO;
 use PDOException;
