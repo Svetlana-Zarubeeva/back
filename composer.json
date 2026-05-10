@@ -3,7 +3,7 @@
     "type": "project",
     "autoload": {
         "psr-4": {
-            "Svetlana\\PhpRestApi\\": "src/"
+            "App\\": "src/"
         }
     },
     "authors": [
@@ -17,6 +17,7 @@
         "slim/psr7": "^1.0",
         "monolog/monolog": "^2.0",
         "slim/http-cache": "^1.0",
-        "firebase/php-jwt": "^6.0"
+        "firebase/php-jwt": "^6.0",
+        "vlucas/phpdotenv": "^5.0"
     }
 }
