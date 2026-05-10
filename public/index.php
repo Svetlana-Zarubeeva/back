@@ -7,6 +7,7 @@ use App\Controllers\CompanyController;
 use App\Controllers\CityController;
 use App\Controllers\StatusController;
 
+// Загружаем переменные окружения
 $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
 $dotenv->load();
 
@@ -14,6 +15,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 $app = AppFactory::create();
 
+// Middleware для JSON
 $app->addBodyParsingMiddleware();
 
 // CORS middleware
