@@ -22,7 +22,7 @@ class LegalEntity extends Model
         'full_name',
         'registration_date',
         'status',
-        'okved_id'
+        'okved_code'
     ];
 
     protected $casts = [
@@ -34,7 +34,7 @@ class LegalEntity extends Model
         'full_name' => 'string',
         'registration_date' => 'date',
         'status' => 'string',
-        'okved_id' => 'string',
+        'okved_code' => 'string',
         'created_at' => 'datetime',
         'updated_at' => 'datetime'
     ];
@@ -90,6 +90,6 @@ class LegalEntity extends Model
      */
     public function okved(): HasOne
     {
-        return $this->hasOne(OkvedItCode::class, 'okved_code', 'okved_id');
+        return $this->hasOne(OkvedItCode::class, 'okved_code', 'okved_code');
     }
 }

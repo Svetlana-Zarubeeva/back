@@ -36,6 +36,6 @@ class OkvedItCode extends Model
      */
     public function legalEntities(): HasMany
     {
-        return $this->hasMany(LegalEntity::class, 'okved_id', 'okved_code');
+        return $this->hasMany(LegalEntity::class, 'okved_code', 'okved_code');
     }
 }

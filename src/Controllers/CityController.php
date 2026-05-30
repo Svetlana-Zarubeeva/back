@@ -21,7 +21,17 @@ class CityController
                 WHERE city IS NOT NULL AND city != ''
                 ORDER BY city
             ");
-            $cities = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+            
+            // Преобразуем в формат, который ожидает фронтенд
+            $cities = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                if (!empty($row['city'])) {
+                    $cities[] = [
+                        'id' => $row['city'],
+                        'name' => $row['city']
+                    ];
+                }
+            }
             
             $response->getBody()->write(json_encode([
                 'success' => true,

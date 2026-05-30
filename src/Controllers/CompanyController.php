@@ -25,6 +25,8 @@ class CompanyController
             $queryParams = $request->getQueryParams();
             $status = $queryParams['status'] ?? null;
             $city = $queryParams['city'] ?? null;
+            $district = $queryParams['district'] ?? null;
+            $search = $queryParams['search'] ?? null;
             $onlyActive = isset($queryParams['only_active']) ? filter_var($queryParams['only_active'], FILTER_VALIDATE_BOOLEAN) : false;
             $lat = isset($queryParams['lat']) ? (float)$queryParams['lat'] : null;
             $lng = isset($queryParams['lng']) ? (float)$queryParams['lng'] : null;
@@ -36,8 +38,8 @@ class CompanyController
             $sql = "
                 SELECT 
                     le.id, le.inn, le.ogrn, le.kpp, le.short_name, le.full_name,
-                    le.registration_date, le.status, le.okved_id,
-                    a.address_full, a.postal_code, a.region, a.city, a.street,
+                    le.registration_date, le.status, le.okved_code,
+                    a.address_full, a.postal_code, a.region, a.city, a.district, a.street,
                     a.house, a.flat, a.latitude, a.longitude,
                     ci.phones, ci.emails, ci.websites,
                     f.employee_count, f.revenue, f.income, f.expense, f.tax_system,
@@ -53,25 +55,41 @@ class CompanyController
             $conditions = [];
             $params = [];
             
+            // Поиск по названию
+            if ($search) {
+                $searchTerm = trim(strtolower($search));
+                $conditions[] = "(le.short_name ILIKE :search OR le.full_name ILIKE :search)";
+                $params[':search'] = '%' . $searchTerm . '%';
+            }
+            
+            // ИСПРАВЛЕНО: Фильтр по статусу (регистронезависимый)
             if ($status) {
-                $conditions[] = "le.status = :status";
+                // Используем LOWER() для обеих сторон, чтобы 'Не действует' совпало с 'не действует'
+                $conditions[] = "LOWER(le.status) = LOWER(:status)";
                 $params[':status'] = $status;
             }
             
+            // Фильтр по городу (регистронезависимый)
             if ($city) {
-                $conditions[] = "a.city = :city";
+                $conditions[] = "LOWER(a.city) = LOWER(:city)";
                 $params[':city'] = $city;
             }
             
+            // Фильтр по району (регистронезависимый)
+            if ($district) {
+                $conditions[] = "LOWER(a.district) = LOWER(:district)";
+                $params[':district'] = $district;
+            }
+            
             if ($onlyActive) {
-                $conditions[] = "le.status = 'ACTIVE'";
+                $conditions[] = "(le.status = 'Действует' OR le.status = 'ACTIVE')";
             }
             
             if (!empty($conditions)) {
                 $sql .= " AND " . implode(" AND ", $conditions);
             }
             
-            // Сортировка по расстоянию или по умолчанию
+            // Сортировка
             if ($lat !== null && $lng !== null) {
                 $sql .= " ORDER BY 
                     (a.latitude - :lat) * (a.latitude - :lat) + 
@@ -98,11 +116,9 @@ class CompanyController
             $stmt->execute();
             $companies = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             
-            // Получаем учредителей для каждой компании
             $result = [];
             foreach ($companies as $company) {
                 if ($company['id']) {
-                    // Получаем учредителей
                     $foundersStmt = $db->prepare("
                         SELECT f.*, ft.type_name as founder_type_name
                         FROM founders f
@@ -113,6 +129,10 @@ class CompanyController
                     $foundersStmt->execute();
                     $founders = $foundersStmt->fetchAll(\PDO::FETCH_ASSOC);
                     
+                    $phones = $this->parsePhoneData($company['phones'] ?? '');
+                    $emails = $this->parseEmailData($company['emails'] ?? '');
+                    $websites = $this->parseWebsiteData($company['websites'] ?? '');
+                    
                     $companyData = [
                         'id' => $company['id'],
                         'inn' => $company['inn'],
@@ -122,12 +142,13 @@ class CompanyController
                         'full_name' => $company['full_name'],
                         'registration_date' => $company['registration_date'],
                         'status' => $company['status'],
-                        'okved_id' => $company['okved_id'],
+                        'okved_code' => $company['okved_code'],
                         'address' => [
                             'address_full' => $company['address_full'],
                             'postal_code' => $company['postal_code'],
                             'region' => $company['region'],
                             'city' => $company['city'],
+                            'district' => $company['district'],
                             'street' => $company['street'],
                             'house' => $company['house'],
                             'flat' => $company['flat'],
@@ -135,9 +156,9 @@ class CompanyController
                             'longitude' => $company['longitude']
                         ],
                         'contact_info' => [
-                            'phones' => $company['phones'],
-                            'emails' => $company['emails'],
-                            'websites' => $company['websites']
+                            'phones' => $phones,
+                            'emails' => $emails,
+                            'websites' => $websites
                         ],
                         'finance' => [
                             'employee_count' => $company['employee_count'],
@@ -154,7 +175,6 @@ class CompanyController
                         'founders' => $founders
                     ];
                     
-                    // Добавляем расстояние, если заданы координаты
                     if ($lat !== null && $lng !== null && $company['latitude'] !== null && $company['longitude'] !== null) {
                         $distance = DistanceHelper::calculateDistance(
                             $lat, $lng, 
@@ -173,7 +193,8 @@ class CompanyController
                 'total' => count($result),
                 'limit' => $limit,
                 'offset' => $offset
-            ]));
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            
             return $response
                 ->withHeader('Content-Type', 'application/json')
                 ->withStatus(200);
@@ -181,21 +202,21 @@ class CompanyController
         } catch (\Exception $e) {
             $debugMode = $_SERVER['APP_DEBUG'] ?? false;
             $errorMessage = $debugMode ? $e->getMessage() : 'Internal server error';
-            
+                        
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Database error',
                 'message' => $errorMessage
-            ]));
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            
             return $response
                 ->withHeader('Content-Type', 'application/json')
                 ->withStatus(500);
         }
     }
 
-    /**
-     * Получить компанию по ИНН
-     */
+    // ... (Остальные методы getByInn и парсеры остаются без изменений) ...
+    
     public function getByInn(Request $request, Response $response, array $args): Response
     {
         $inn = $args['inn'];
@@ -203,12 +224,11 @@ class CompanyController
         try {
             $db = \App\Models\Database::getConnection();
             
-            // Получаем основную информацию
             $stmt = $db->prepare("
                 SELECT 
                     le.id, le.inn, le.ogrn, le.kpp, le.short_name, le.full_name,
-                    le.registration_date, le.status, le.okved_id,
-                    a.address_full, a.postal_code, a.region, a.city, a.street,
+                    le.registration_date, le.status, le.okved_code,
+                    a.address_full, a.postal_code, a.region, a.city, a.district, a.street,
                     a.house, a.flat, a.latitude, a.longitude,
                     ci.phones, ci.emails, ci.websites,
                     f.employee_count, f.revenue, f.income, f.expense, f.tax_system,
@@ -229,13 +249,12 @@ class CompanyController
                 $response->getBody()->write(json_encode([
                     'success' => false,
                     'error' => 'Company not found'
-                ]));
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 return $response
                     ->withHeader('Content-Type', 'application/json')
                     ->withStatus(404);
             }
             
-            // Получаем учредителей
             $foundersStmt = $db->prepare("
                 SELECT f.*, ft.type_name as founder_type_name
                 FROM founders f
@@ -246,6 +265,10 @@ class CompanyController
             $foundersStmt->execute();
             $founders = $foundersStmt->fetchAll(\PDO::FETCH_ASSOC);
             
+            $phones = $this->parsePhoneData($company['phones'] ?? '');
+            $emails = $this->parseEmailData($company['emails'] ?? '');
+            $websites = $this->parseWebsiteData($company['websites'] ?? '');
+            
             $result = [
                 'id' => $company['id'],
                 'inn' => $company['inn'],
@@ -255,12 +278,13 @@ class CompanyController
                 'full_name' => $company['full_name'],
                 'registration_date' => $company['registration_date'],
                 'status' => $company['status'],
-                'okved_id' => $company['okved_id'],
+                'okved_code' => $company['okved_code'],
                 'address' => [
                     'address_full' => $company['address_full'],
                     'postal_code' => $company['postal_code'],
                     'region' => $company['region'],
                     'city' => $company['city'],
+                    'district' => $company['district'],
                     'street' => $company['street'],
                     'house' => $company['house'],
                     'flat' => $company['flat'],
@@ -268,9 +292,9 @@ class CompanyController
                     'longitude' => $company['longitude']
                 ],
                 'contact_info' => [
-                    'phones' => $company['phones'],
-                    'emails' => $company['emails'],
-                    'websites' => $company['websites']
+                    'phones' => $phones,
+                    'emails' => $emails,
+                    'websites' => $websites
                 ],
                 'finance' => [
                     'employee_count' => $company['employee_count'],
@@ -290,7 +314,7 @@ class CompanyController
             $response->getBody()->write(json_encode([
                 'success' => true,
                 'data' => $result
-            ]));
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             return $response
                 ->withHeader('Content-Type', 'application/json')
                 ->withStatus(200);
@@ -298,15 +322,92 @@ class CompanyController
         } catch (\Exception $e) {
             $debugMode = $_SERVER['APP_DEBUG'] ?? false;
             $errorMessage = $debugMode ? $e->getMessage() : 'Internal server error';
-            
+                        
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Database error',
                 'message' => $errorMessage
-            ]));
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             return $response
                 ->withHeader('Content-Type', 'application/json')
                 ->withStatus(500);
         }
+    }
+    
+    private function parsePhoneData($data) {
+        if (empty($data) || $data === null || $data === '') return [];
+        if (is_array($data)) {
+            return array_map(function($phone) {                
+                if (is_string($phone)) return ['number' => $phone];
+                elseif (isset($phone['number'])) return ['number' => $phone['number']];
+                elseif (isset($phone['phone'])) return ['number' => $phone['phone']];
+                else return ['number' => (string)$phone];
+            }, $data);
+        }
+        if (is_string($data)) {
+            $data = trim($data);
+            if ($data === '[]') return [];
+            $decoded = json_decode($data, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return array_map(function($phone) {
+                    if (is_string($phone)) return ['number' => $phone];
+                    elseif (isset($phone['number'])) return ['number' => $phone['number']];
+                    elseif (isset($phone['phone'])) return ['number' => $phone['phone']];
+                    else return ['number' => (string)$phone];
+                }, $decoded);
+            }
+            return [];
+        }
+        return [];
+    }
+    
+    private function parseEmailData($data) {
+        if (empty($data) || $data === null || $data === '') return [];
+        if (is_array($data)) {
+            return array_map(function($email) {                
+                if (is_string($email)) return ['email' => $email];
+                elseif (isset($email['email'])) return ['email' => $email['email']];
+                else return ['email' => (string)$email];
+            }, $data);
+        }
+        if (is_string($data)) {
+            $data = trim($data);
+            if ($data === '[]') return [];
+            $decoded = json_decode($data, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return array_map(function($email) {
+                    if (is_string($email)) return ['email' => $email];
+                    elseif (isset($email['email'])) return ['email' => $email['email']];
+                    else return ['email' => (string)$email];
+                }, $decoded);
+            }
+            return [];
+        }
+        return [];
+    }
+    
+    private function parseWebsiteData($data) {
+        if (empty($data) || $data === null || $data === '') return [];
+        if (is_array($data)) {
+            return array_map(function($website) {                
+                if (is_string($website)) return ['url' => $website];
+                elseif (isset($website['url'])) return ['url' => $website['url']];
+                else return ['url' => (string)$website];
+            }, $data);
+        }
+        if (is_string($data)) {
+            $data = trim($data);
+            if ($data === '[]') return [];
+            $decoded = json_decode($data, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return array_map(function($website) {
+                    if (is_string($website)) return ['url' => $website];
+                    elseif (isset($website['url'])) return ['url' => $website['url']];
+                    else return ['url' => (string)$website];
+                }, $decoded);
+            }
+            return [];
+        }
+        return [];
     }
 }
